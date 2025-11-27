@@ -24,7 +24,9 @@ def main(year=None, round_number=None, playback_speed=1):
     drivers=drivers,
     playback_speed=1.0,
     driver_colors=race_telemetry['driver_colors'],
-    title=f"{session.event['EventName']} - Race"
+    title=f"{session.event['EventName']} - Race",
+    year=year,
+    round_number=round_number
   )
 
 if __name__ == "__main__":
@@ -46,3 +48,4 @@ if __name__ == "__main__":
   playback_speed = 1
 
   main(year, round_number, playback_speed)
+

@@ -1,12 +1,15 @@
 import os
 import arcade
+import arcade.gui as gui
 import numpy as np
 from src.f1_data import FPS
+import subprocess
 
 # Kept these as "default" starting sizes, but they are no longer hard limits
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1200
 SCREEN_TITLE = "F1 Replay"
+
 
 def build_track_from_example_lap(example_lap, track_width=200):
     plot_x_ref = example_lap["X"].to_numpy()
@@ -41,9 +44,12 @@ def build_track_from_example_lap(example_lap, track_width=200):
 
 class F1ReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
-                 playback_speed=1.0, driver_colors=None):
+                playback_speed=1.0, driver_colors=None, input_year=None, input_session=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
+
+        self.manager = gui.UIManager()
+        self.manager.enable()
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -54,6 +60,35 @@ class F1ReplayWindow(arcade.Window):
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self._tyre_textures = {}
+        self.user_input_year    = input_year
+        self.user_input_session = input_session
+        # Draw replay_info - bottom Right
+
+        # Create an text input fields
+        self.input_year = gui.UIInputText(
+            x = self.width - 220,
+            y = 65,
+            width=200,
+            height=40,
+            text= str(self.user_input_year),
+            color=arcade.color.WHITE_SMOKE,
+            font_size=16,
+            )
+        
+        self.input_session = gui.UIInputText(
+            x = self.width - 220,
+            y = 20,
+            width=200,
+            height=40,
+            text=  str(self.user_input_session),
+            color=arcade.color.WHITE_SMOKE,
+            font_size=16,
+            )
+
+        self.manager.add(self.input_year)
+        self.manager.add(self.input_session)
+        self.input_year.activate()
+        self.input_session.activate()
 
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
@@ -65,11 +100,13 @@ class F1ReplayWindow(arcade.Window):
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
         # Build track geometry (Raw World Coordinates)
-        (self.plot_x_ref, self.plot_y_ref,
-         self.x_inner, self.y_inner,
-         self.x_outer, self.y_outer,
-         self.x_min, self.x_max,
-         self.y_min, self.y_max) = build_track_from_example_lap(example_lap)
+            (self.plot_x_ref, self.plot_y_ref,
+            self.x_inner, self.y_inner,
+            self.x_outer, self.y_outer,
+            self.x_min, self.x_max,
+            self.y_min, self.y_max) = build_track_from_example_lap(example_lap)
+
+    
 
         # Pre-calculate interpolated world points ONCE (optimization)
         # We store these as 'world' coordinates, not screen coordinates
@@ -148,7 +185,7 @@ class F1ReplayWindow(arcade.Window):
 
     def on_draw(self):
         self.clear()
-
+        
         # 1. Draw Background (stretched to fit new window size)
         if self.bg_texture:
             arcade.draw_lrbt_rectangle_textured(
@@ -156,7 +193,7 @@ class F1ReplayWindow(arcade.Window):
                 bottom=0, top=self.height,
                 texture=self.bg_texture
             )
-
+        
         # 2. Draw Track (using pre-calculated screen points)
         idx = min(int(self.frame_index), self.n_frames - 1)
         frame = self.frames[idx]
@@ -185,7 +222,7 @@ class F1ReplayWindow(arcade.Window):
             track_color = STATUS_COLORS.get("RED")
         elif current_track_status == "6" or current_track_status == "7":
             track_color = STATUS_COLORS.get("VSC")
- 
+
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
         if len(self.screen_outer_points) > 1:
@@ -200,8 +237,10 @@ class F1ReplayWindow(arcade.Window):
             color = self.driver_colors.get(code, arcade.color.WHITE)
             arcade.draw_circle_filled(sx, sy, 6, color)
         
-        # --- UI ELEMENTS (Dynamic Positioning) ---
         
+
+        # --- UI ELEMENTS (Dynamic Positioning) ---
+        self.manager.draw()
         # Determine Leader info
         leader_code = max(
             frame["drivers"],
@@ -218,19 +257,19 @@ class F1ReplayWindow(arcade.Window):
 
         # Draw HUD - Top Left
         arcade.Text(f"Lap: {leader_lap}", 
-                         20, self.height - 40, 
-                         arcade.color.WHITE, 24, anchor_y="top").draw()
+                        20, self.height - 40, 
+                        arcade.color.WHITE, 24, anchor_y="top").draw()
         
         arcade.Text(f"Race Time: {time_str}", 
-                         20, self.height - 80, 
-                         arcade.color.WHITE, 20, anchor_y="top").draw()
+                        20, self.height - 80, 
+                        arcade.color.WHITE, 20, anchor_y="top").draw()
 
         # Draw Leaderboard - Top Right
         leaderboard_x = self.width - 220
         leaderboard_y = self.height - 40
         
         arcade.Text("Leaderboard", leaderboard_x, leaderboard_y, 
-                         arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+                        arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
 
         driver_list = []
         for code, pos in frame["drivers"].items():
@@ -310,7 +349,7 @@ class F1ReplayWindow(arcade.Window):
             "Controls:",
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
-            "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            f"[↑/↓]    Speed +/- ({self.playback_speed:.2f}x)",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -323,8 +362,8 @@ class F1ReplayWindow(arcade.Window):
                 bold=(i == 0)
             ).draw()
         
+        
         # Selected Driver Info - Middle Left
-
         if self.selected_driver and self.selected_driver in frame["drivers"]:
             # Draw box, with the driver's name in another box at the top of the original box
             driver_pos = frame["drivers"][self.selected_driver]
@@ -398,7 +437,30 @@ class F1ReplayWindow(arcade.Window):
                     14,
                     anchor_x="left", anchor_y="center"
                 ).draw()
-                    
+
+        # Session Change - Bottom Right
+        session_x = self.width - 350
+        session_y = 170 
+        session_lines = [
+            "change Session:",
+            "(this will take awhile!)",
+            "Year:",
+            "Session:",
+        ]
+        
+        for i, line in enumerate(session_lines):
+            arcade.Text(
+                line,
+                session_x,
+                session_y - (i * 45),
+                arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
+                32 if i == 0 else 24,
+                bold=(i == 0)
+            ).draw()
+
+
+        self.manager.draw() 
+
     def on_update(self, delta_time: float):
         if self.paused:
             return
@@ -412,11 +474,11 @@ class F1ReplayWindow(arcade.Window):
         elif symbol == arcade.key.RIGHT:
             self.frame_index = min(self.frame_index + 10.0, self.n_frames - 1)
         elif symbol == arcade.key.LEFT:
-            self.frame_index = max(self.frame_index - 10.0, 0.0)
+            self.frame_index = min(self.frame_index - 10.0, 0.0)
         elif symbol == arcade.key.UP:
-            self.playback_speed *= 2.0
+            self.playback_speed = min(32, self.playback_speed * 2.0)
         elif symbol == arcade.key.DOWN:
-            self.playback_speed = max(0.1, self.playback_speed / 2.0)
+            self.playback_speed = max(0.25, self.playback_speed / 2.0)
         elif symbol == arcade.key.KEY_1:
             self.playback_speed = 0.5
         elif symbol == arcade.key.KEY_2:
@@ -425,6 +487,26 @@ class F1ReplayWindow(arcade.Window):
             self.playback_speed = 2.0
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.ENTER:
+            year_text = self.input_year.text
+            try:
+                year_value = int(year_text)
+                self.user_input_year = year_value
+                print(f"User input year set to: {self.user_input_year}")
+                
+            except ValueError:
+                print(f"Invalid year input: {year_text}")
+            session_text = self.input_session.text
+            try:    
+                session_value = int(session_text)
+                self.user_input_session = session_value
+                print(f"User input session set to: {self.user_input_session}") 
+            except ValueError:
+                print(f"Invalid session input: {session_text}")
+            # Possibly trigger data reload here based on new year/session
+            change_session(self.user_input_year, self.user_input_session)
+            
+
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # Default: clear selection
@@ -440,7 +522,7 @@ class F1ReplayWindow(arcade.Window):
         else:
             self.selected_driver = new_selection
 
-def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playback_speed=1.0, driver_colors=None):
+def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playback_speed=1.0, driver_colors=None, year = None, round_number = None):
     window = F1ReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
@@ -448,6 +530,22 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playb
         drivers=drivers,
         playback_speed=playback_speed,
         driver_colors=driver_colors,
-        title=title
+        title=title,
+        input_year = year,
+        input_session = round_number
     )
+    
+    
     arcade.run()
+
+def change_session(year: int, session: int):
+    """
+    Opens a new instance of the replay with the specified year and session.
+    Closes the current instance.
+
+    Args:
+        year: The year of the F1 season.
+        session: The session number (1-4).
+    """
+    subprocess.Popen("python main.py --year {} --round {}".format(year, session))
+    arcade.close_window()
